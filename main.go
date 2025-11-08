@@ -2,14 +2,19 @@ package main
 
 import (
 	"errors"
-	"github.com/pelletier/go-toml"
-	"github.com/sandertv/gophertunnel/minecraft"
-	"github.com/sandertv/gophertunnel/minecraft/auth"
-	"golang.org/x/oauth2"
 	"log"
 	"os"
 	"sync"
+	"time"
+
+	"github.com/pelletier/go-toml"
+	"github.com/sandertv/gophertunnel/minecraft"
+	"github.com/sandertv/gophertunnel/minecraft/auth"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
+	"golang.org/x/oauth2"
 )
+
+var pd PersistenceData
 
 // The following program implements a proxy that forwards players from one local address to a remote address.
 func main() {
@@ -87,6 +92,41 @@ func handleConn(conn *minecraft.Conn, listener *minecraft.Listener, config confi
 		defer listener.Disconnect(conn, "connection lost")
 		for {
 			pk, err := serverConn.ReadPacket()
+			switch p := pk.(type) {
+			case *packet.AvailableActorIdentifiers:
+				// Append all custom falling blocks (e.g. rtx:anvil, etc.) to the available actor identifiers.
+				_ = AppendCustomEntity(p)
+			case *packet.AddActor:
+				if p.EntityType == "minecraft:falling_block" {
+					// Redirect falling block entity ID
+					entityID, found := RedirectFallingBlockID(p.EntityType, p.EntityMetadata)
+					if found {
+						p.EntityType = entityID
+						p.Position[1] -= 0.49
+					}
+					// Add to world entity
+					pd.AddWorldEntity(EntityData{
+						EntityType:      "minecraft:falling_block",
+						EntityRuntimeID: p.EntityRuntimeID,
+						EntityUniqueID:  p.EntityUniqueID,
+					})
+				}
+			case *packet.MoveActorDelta:
+				// Fix the position
+				entity := pd.GetWorldEntityByRuntimeID(p.EntityRuntimeID)
+				if entity != nil && entity.EntityType == "minecraft:falling_block" {
+					p.Position[1] -= 0.49
+				}
+			case *packet.UpdateBlockSynced:
+				// Falling block --convect--> Completely block
+				entity := pd.GetWorldEntityByUniqueID(int64(p.EntityUniqueID))
+				if entity != nil && entity.EntityType == "minecraft:falling_block" {
+					time.Sleep(time.Second / 20 * 3) // Make sure the animation smoothly finishes
+				}
+			case *packet.RemoveActor:
+				// Remove from world entity to prevent memory leak
+				pd.DeleteWorldEntityByUniqueID(p.EntityUniqueID)
+			}
 			if err != nil {
 				var disc minecraft.DisconnectError
 				if ok := errors.As(err, &disc); ok {

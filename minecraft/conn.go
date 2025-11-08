@@ -1003,7 +1003,11 @@ func (conn *Conn) handleResourcePackClientResponse(pk *packet.ResourcePackClient
 			return err
 		}
 	case packet.PackResponseAllPacksDownloaded:
-		pk := &packet.ResourcePackStack{BaseGameVersion: protocol.CurrentVersion, Experiments: []protocol.ExperimentData{{Name: "cameras", Enabled: true}}}
+		pk := &packet.ResourcePackStack{
+			BaseGameVersion: protocol.CurrentVersion,
+			TexturePacks:    []protocol.StackResourcePack{{UUID: "90301d08-898b-40a1-ab39-ed4d8ed3c1e5", Version: "2.0.0"}}, // Just a hacking
+			Experiments:     []protocol.ExperimentData{{Name: "cameras", Enabled: true}},
+		}
 		for _, pack := range conn.resourcePacks {
 			resourcePack := protocol.StackResourcePack{UUID: pack.UUID().String(), Version: pack.Version()}
 			// If it has behaviours, add it to the behaviour pack list. If not, we add it to the texture packs
